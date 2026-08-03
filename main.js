@@ -35,9 +35,8 @@ form.addEventListener('submit', async (event) => {
 // { date, open, high, low, close, volume } with numeric values.
 // Replace or extend with moving average, MACD, RSI calculations from Day 1.
 async function fetchPriceData(ticker, apiKey) {
-  // outputsize is the number of most-recent bars. ~63 trading days is about
-  // 3 months; 90 leaves a little headroom. Max allowed is 5000.
-  const url = `https://api.twelvedata.com/time_series?symbol=${ticker}&interval=1day&outputsize=90&apikey=${apiKey}`;
+  // outputsize=252 corresponds to ~1 full trading year of daily bars.
+  const url = `https://api.twelvedata.com/time_series?symbol=${ticker}&interval=1day&outputsize=252&apikey=${apiKey}`;
   const response = await fetch(url);
 
   // Read the body as text first, then parse it safely, so an unexpected
@@ -286,16 +285,33 @@ function renderResults(ticker, priceData, rsiData, macdData, note) {
   const signalVal = macdData.latest.signal !== null ? macdData.latest.signal.toFixed(2) : 'N/A';
   const histVal = macdData.latest.histogram !== null ? macdData.latest.histogram.toFixed(2) : 'N/A';
 
+  const chartSVG = generate1YearChartSVG(ticker, priceData, rsiData, macdData);
+
   results.innerHTML = `
     <div class="results-header">
       <h2>${ticker}</h2>
       <div class="price-block">
         <span class="price-value">$${latest.close.toFixed(2)}</span>
         <span class="price-change ${isPositive ? 'positive' : 'negative'}">
-          ${isPositive ? '+' : ''}${pctChange.toFixed(2)}%
+          ${isPositive ? '+' : ''}${pctChange.toFixed(2)}% (1-Yr)
         </span>
       </div>
-      <p class="date-range">${first.date} to ${latest.date}</p>
+      <p class="date-range">${first.date} to ${latest.date} (${priceData.length} trading days)</p>
+    </div>
+
+    <div class="chart-section">
+      <div class="chart-header">
+        <h3>1-Year Price & Technical Analysis Chart</h3>
+        <div class="chart-legend">
+          <span class="legend-item"><span class="legend-color price-line"></span>Price ($)</span>
+          <span class="legend-item"><span class="legend-color rsi-line"></span>RSI (14)</span>
+          <span class="legend-item"><span class="legend-color macd-line"></span>MACD</span>
+          <span class="legend-item"><span class="legend-color signal-line"></span>Signal</span>
+        </div>
+      </div>
+      <div class="svg-container">
+        ${chartSVG}
+      </div>
     </div>
 
     <div class="indicators-grid">
@@ -327,5 +343,168 @@ function renderResults(ticker, priceData, rsiData, macdData, note) {
       <h3>AI Analysis & Research Note</h3>
       <p class="note-text">${note}</p>
     </div>
+  `;
+}
+
+function generate1YearChartSVG(ticker, priceData, rsiData, macdData) {
+  const w = 760;
+  const h = 420;
+  const paddingLeft = 55;
+  const paddingRight = 20;
+  const chartW = w - paddingLeft - paddingRight;
+
+  // Price chart dimensions
+  const priceTop = 25;
+  const priceHeight = 180;
+
+  // RSI chart dimensions
+  const rsiTop = 235;
+  const rsiHeight = 65;
+
+  // MACD chart dimensions
+  const macdTop = 330;
+  const macdHeight = 60;
+
+  const N = priceData.length;
+  if (N < 2) return '<p>Not enough data points for chart.</p>';
+
+  // Price Min/Max
+  const closes = priceData.map((d) => d.close);
+  let minP = Math.min(...closes);
+  let maxP = Math.max(...closes);
+  const pMargin = (maxP - minP) * 0.05 || 1;
+  minP -= pMargin;
+  maxP += pMargin;
+
+  const getX = (index) => paddingLeft + (index / (N - 1)) * chartW;
+  const getPriceY = (val) => priceTop + priceHeight - ((val - minP) / (maxP - minP)) * priceHeight;
+
+  // Generate Price Path & Area
+  const pricePoints = closes.map((c, i) => `${getX(i).toFixed(1)},${getPriceY(c).toFixed(1)}`);
+  const pricePathD = `M ${pricePoints.join(' L ')}`;
+  const areaPathD = `M ${getX(0).toFixed(1)},${priceTop + priceHeight} L ${pricePoints.join(' L ')} L ${getX(N - 1).toFixed(1)},${priceTop + priceHeight} Z`;
+
+  const isPositive = closes[N - 1] >= closes[0];
+  const mainColor = isPositive ? '#16a34a' : '#dc2626';
+  const gradId = `priceGrad-${ticker}`;
+
+  // Price Gridlines & Labels (4 steps)
+  let priceGridHTML = '';
+  for (let step = 0; step <= 4; step++) {
+    const val = minP + (step / 4) * (maxP - minP);
+    const y = getPriceY(val);
+    priceGridHTML += `
+      <line x1="${paddingLeft}" y1="${y}" x2="${w - paddingRight}" y2="${y}" stroke="rgba(107,33,168,0.12)" stroke-dasharray="3,3" />
+      <text x="${paddingLeft - 8}" y="${y + 4}" text-anchor="end" font-size="10" fill="#3b0764" font-family="Montserrat">$${val.toFixed(2)}</text>
+    `;
+  }
+
+  // Date Labels (approx 6 ticks across the year)
+  let dateTicksHTML = '';
+  const dateInterval = Math.floor((N - 1) / 5);
+  for (let i = 0; i < N; i += dateInterval) {
+    const x = getX(i);
+    const dateStr = priceData[i].date;
+    // Format date string MM/YY
+    const dateParts = dateStr.split('-');
+    const formattedDate = dateParts.length === 3 ? `${dateParts[1]}/${dateParts[0].slice(2)}` : dateStr;
+
+    dateTicksHTML += `
+      <line x1="${x}" y1="${priceTop + priceHeight}" x2="${x}" y2="${priceTop + priceHeight + 4}" stroke="#6b21a8" />
+      <text x="${x}" y="${priceTop + priceHeight + 16}" text-anchor="middle" font-size="10" fill="#3b0764" font-family="Montserrat">${formattedDate}</text>
+    `;
+  }
+
+  // RSI Path
+  const getRsiY = (val) => rsiTop + rsiHeight - (val / 100) * rsiHeight;
+  const rsiPoints = [];
+  rsiData.values.forEach((v, i) => {
+    if (v !== null) {
+      rsiPoints.push(`${getX(i).toFixed(1)},${getRsiY(v).toFixed(1)}`);
+    }
+  });
+  const rsiPathD = rsiPoints.length > 0 ? `M ${rsiPoints.join(' L ')}` : '';
+
+  // MACD Paths
+  const macdVals = macdData.macdLine.filter((v) => v !== null);
+  const signalVals = macdData.signalLine.filter((v) => v !== null);
+  const histVals = macdData.histogram.filter((v) => v !== null);
+
+  let maxMacdAbs = 1;
+  if (macdVals.length > 0) {
+    const allM = [...macdVals, ...signalVals, ...histVals].map(Math.abs);
+    maxMacdAbs = Math.max(...allM) * 1.1 || 1;
+  }
+
+  const getMacdY = (val) => macdTop + macdHeight / 2 - (val / maxMacdAbs) * (macdHeight / 2);
+
+  const macdPoints = [];
+  const signalPoints = [];
+  let histBarsHTML = '';
+  const barWidth = Math.max(1, chartW / N - 0.5);
+
+  for (let i = 0; i < N; i++) {
+    const x = getX(i);
+    if (macdData.macdLine[i] !== null) {
+      macdPoints.push(`${x.toFixed(1)},${getMacdY(macdData.macdLine[i]).toFixed(1)}`);
+    }
+    if (macdData.signalLine[i] !== null) {
+      signalPoints.push(`${x.toFixed(1)},${getMacdY(macdData.signalLine[i]).toFixed(1)}`);
+    }
+    if (macdData.histogram[i] !== null) {
+      const hVal = macdData.histogram[i];
+      const yZero = getMacdY(0);
+      const yVal = getMacdY(hVal);
+      const hHeight = Math.abs(yVal - yZero);
+      const hY = hVal >= 0 ? yVal : yZero;
+      const barColor = hVal >= 0 ? '#16a34a' : '#dc2626';
+      histBarsHTML += `<rect x="${(x - barWidth / 2).toFixed(1)}" y="${hY.toFixed(1)}" width="${barWidth.toFixed(1)}" height="${Math.max(1, hHeight).toFixed(1)}" fill="${barColor}" opacity="0.65" />`;
+    }
+  }
+
+  const macdPathD = macdPoints.length > 0 ? `M ${macdPoints.join(' L ')}` : '';
+  const signalPathD = signalPoints.length > 0 ? `M ${signalPoints.join(' L ')}` : '';
+
+  return `
+    <svg viewBox="0 0 ${w} ${h}" class="analysis-chart">
+      <defs>
+        <linearGradient id="${gradId}" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="${mainColor}" stop-opacity="0.35" />
+          <stop offset="100%" stop-color="${mainColor}" stop-opacity="0.0" />
+        </linearGradient>
+      </defs>
+
+      <!-- PRICE CHART SECTION -->
+      <g class="price-chart">
+        <text x="${paddingLeft}" y="${priceTop - 8}" font-size="11" font-weight="700" fill="#3b0764" font-family="Montserrat">PRICE ACTION (1 YEAR)</text>
+        ${priceGridHTML}
+        ${dateTicksHTML}
+        <path d="${areaPathD}" fill="url(#${gradId})" />
+        <path d="${pricePathD}" fill="none" stroke="${mainColor}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+      </g>
+
+      <!-- RSI CHART SECTION -->
+      <g class="rsi-chart">
+        <text x="${paddingLeft}" y="${rsiTop - 8}" font-size="11" font-weight="700" fill="#3b0764" font-family="Montserrat">RSI (14)</text>
+        
+        <!-- RSI background limits -->
+        <rect x="${paddingLeft}" y="${getRsiY(70)}" width="${chartW}" height="${getRsiY(30) - getRsiY(70)}" fill="rgba(107,33,168,0.04)" />
+        <line x1="${paddingLeft}" y1="${getRsiY(70)}" x2="${w - paddingRight}" y2="${getRsiY(70)}" stroke="#dc2626" stroke-dasharray="2,2" stroke-width="1" />
+        <line x1="${paddingLeft}" y1="${getRsiY(30)}" x2="${w - paddingRight}" y2="${getRsiY(30)}" stroke="#16a34a" stroke-dasharray="2,2" stroke-width="1" />
+        <text x="${w - paddingRight + 2}" y="${getRsiY(70) + 3}" font-size="8" fill="#dc2626" font-family="Montserrat">70</text>
+        <text x="${w - paddingRight + 2}" y="${getRsiY(30) + 3}" font-size="8" fill="#16a34a" font-family="Montserrat">30</text>
+        
+        <path d="${rsiPathD}" fill="none" stroke="#6b21a8" stroke-width="1.8" stroke-linecap="round" />
+      </g>
+
+      <!-- MACD CHART SECTION -->
+      <g class="macd-chart">
+        <text x="${paddingLeft}" y="${macdTop - 8}" font-size="11" font-weight="700" fill="#3b0764" font-family="Montserrat">MACD (12, 26, 9)</text>
+        <line x1="${paddingLeft}" y1="${getMacdY(0)}" x2="${w - paddingRight}" y2="${getMacdY(0)}" stroke="#6b21a8" stroke-opacity="0.3" stroke-width="1" />
+        ${histBarsHTML}
+        <path d="${macdPathD}" fill="none" stroke="#2563eb" stroke-width="1.8" />
+        <path d="${signalPathD}" fill="none" stroke="#d97706" stroke-width="1.5" stroke-dasharray="3,2" />
+      </g>
+    </svg>
   `;
 }
