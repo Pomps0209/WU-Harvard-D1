@@ -1,0 +1,152 @@
+:root {
+  --bg-app: #93c5fd;
+  --bg-stripes: repeating-linear-gradient(
+    -45deg,
+    rgba(255, 255, 255, 0.25) 0px,
+    rgba(255, 255, 255, 0.25) 30px,
+    rgba(255, 255, 255, 0.08) 30px,
+    rgba(255, 255, 255, 0.08) 60px
+  );
+  --bg-gradient: linear-gradient(135deg, #e0f2fe 0%, #bae6fd 40%, #93c5fd 100%);
+  --ink: #0f172a;
+  --paper: #f0f7ff;
+  --line: #7dd3fc;
+  --panel-border: #60a5fa;
+  --accent: #1d4ed8;
+  --accent-hover: #1e40af;
+  --error: #dc2626;
+  --muted: #334155;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background-image: var(--bg-stripes), var(--bg-gradient);
+  background-attachment: fixed;
+  color: var(--ink);
+  font-family: 'Montserrat', sans-serif;
+  line-height: 1.5;
+}
+
+.app-header {
+  padding: 2rem 1.5rem 1rem;
+  border-bottom: 1px solid rgba(29, 78, 216, 0.15);
+  background: rgba(240, 247, 255, 0.75);
+  backdrop-filter: blur(8px);
+}
+
+.app-header h1 {
+  margin: 0;
+  font-size: 1.6rem;
+  letter-spacing: 0.01em;
+  color: #1e3a8a;
+}
+
+.subtitle {
+  margin: 0.25rem 0 0;
+  font-family: 'Montserrat', sans-serif;
+  font-size: 0.85rem;
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.app-main {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 1.5rem;
+  display: grid;
+  gap: 1.5rem;
+}
+
+.panel {
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 1.5rem;
+  background: rgba(240, 247, 255, 0.92);
+  box-shadow: 0 4px 16px -2px rgba(30, 58, 138, 0.08);
+}
+
+form {
+  display: grid;
+  gap: 0.5rem;
+}
+
+label {
+  font-family: 'Montserrat', sans-serif;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #1e3a8a;
+}
+
+input {
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--panel-border);
+  border-radius: 4px;
+  font-size: 1rem;
+  font-family: inherit;
+  background: #ffffff;
+  color: var(--ink);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(29, 78, 216, 0.18);
+}
+
+button {
+  margin-top: 0.5rem;
+  padding: 0.65rem 1.25rem;
+  background: var(--accent);
+  color: #ffffff;
+  border: none;
+  border-radius: 4px;
+  font-size: 1rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  width: fit-content;
+  box-shadow: 0 2px 6px rgba(29, 78, 216, 0.25);
+  transition: background 0.2s, transform 0.1s;
+}
+
+button:hover {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+}
+
+.placeholder {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.field-hint {
+  margin: 0 0 0.5rem;
+  font-size: 0.75rem;
+  font-style: italic;
+  color: var(--muted);
+}
+
+.field-hint a {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.error {
+  color: var(--error);
+}
+
+.app-footer {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 0 1.5rem 2rem;
+  font-size: 0.85rem;
+  color: #334155;
+}
