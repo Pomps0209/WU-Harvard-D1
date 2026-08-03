@@ -1,21 +1,21 @@
 :root {
-  --bg-app: #93c5fd;
+  --bg-app: #60a5fa;
   --bg-stripes: repeating-linear-gradient(
     -45deg,
-    rgba(255, 255, 255, 0.25) 0px,
-    rgba(255, 255, 255, 0.25) 30px,
-    rgba(255, 255, 255, 0.08) 30px,
-    rgba(255, 255, 255, 0.08) 60px
+    rgba(255, 255, 255, 0.28) 0px,
+    rgba(255, 255, 255, 0.28) 30px,
+    rgba(255, 255, 255, 0.1) 30px,
+    rgba(255, 255, 255, 0.1) 60px
   );
-  --bg-gradient: linear-gradient(135deg, #e0f2fe 0%, #bae6fd 40%, #93c5fd 100%);
-  --ink: #0f172a;
-  --paper: #f0f7ff;
+  --bg-gradient: linear-gradient(135deg, #bae6fd 0%, #7dd3fc 50%, #60a5fa 100%);
+  --ink: #2e1065;
+  --paper: #faf5ff;
   --line: #7dd3fc;
-  --panel-border: #60a5fa;
-  --accent: #1d4ed8;
-  --accent-hover: #1e40af;
+  --panel-border: #38bdf8;
+  --accent: #6b21a8;
+  --accent-hover: #581c87;
   --error: #dc2626;
-  --muted: #334155;
+  --muted: #581c87;
 }
 
 * {
@@ -34,8 +34,8 @@ body {
 
 .app-header {
   padding: 2rem 1.5rem 1rem;
-  border-bottom: 1px solid rgba(29, 78, 216, 0.15);
-  background: rgba(240, 247, 255, 0.75);
+  border-bottom: 1px solid rgba(107, 33, 168, 0.15);
+  background: rgba(250, 245, 255, 0.85);
   backdrop-filter: blur(8px);
 }
 
@@ -43,7 +43,7 @@ body {
   margin: 0;
   font-size: 1.6rem;
   letter-spacing: 0.01em;
-  color: #1e3a8a;
+  color: #3b0764;
 }
 
 .subtitle {
@@ -51,7 +51,7 @@ body {
   font-family: 'Montserrat', sans-serif;
   font-size: 0.85rem;
   color: var(--accent);
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .app-main {
@@ -63,11 +63,11 @@ body {
 }
 
 .panel {
-  border: 1px solid var(--panel-border);
+  border: 1px solid rgba(107, 33, 168, 0.2);
   border-radius: 8px;
   padding: 1.5rem;
-  background: rgba(240, 247, 255, 0.92);
-  box-shadow: 0 4px 16px -2px rgba(30, 58, 138, 0.08);
+  background: rgba(250, 245, 255, 0.94);
+  box-shadow: 0 4px 18px -2px rgba(58, 7, 100, 0.12);
 }
 
 form {
@@ -78,15 +78,15 @@ form {
 label {
   font-family: 'Montserrat', sans-serif;
   font-size: 0.8rem;
-  font-weight: 600;
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #1e3a8a;
+  color: #3b0764;
 }
 
 input {
   padding: 0.6rem 0.8rem;
-  border: 1px solid var(--panel-border);
+  border: 1px solid rgba(107, 33, 168, 0.25);
   border-radius: 4px;
   font-size: 1rem;
   font-family: inherit;
@@ -98,7 +98,7 @@ input {
 input:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(29, 78, 216, 0.18);
+  box-shadow: 0 0 0 3px rgba(107, 33, 168, 0.2);
 }
 
 button {
@@ -113,7 +113,7 @@ button {
   font-family: inherit;
   cursor: pointer;
   width: fit-content;
-  box-shadow: 0 2px 6px rgba(29, 78, 216, 0.25);
+  box-shadow: 0 2px 8px rgba(107, 33, 168, 0.3);
   transition: background 0.2s, transform 0.1s;
 }
 
@@ -136,7 +136,7 @@ button:hover {
 
 .field-hint a {
   color: var(--accent);
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .error {
@@ -148,5 +148,5 @@ button:hover {
   margin: 0 auto;
   padding: 0 1.5rem 2rem;
   font-size: 0.85rem;
-  color: #334155;
+  color: #3b0764;
 }
