@@ -21,9 +21,11 @@ form.addEventListener('submit', async (event) => {
     const priceData = await fetchPriceData(ticker, twelveDataKey);
     const rsiData = calculateRSI(priceData);
     const macdData = calculateMACD(priceData);
-    const recData = calculateRecommendation(priceData, rsiData, macdData);
-    const note = await getResearchNote(ticker, priceData, rsiData, macdData, recData, openRouterKey);
-    renderResults(ticker, priceData, rsiData, macdData, recData, note);
+    const sma50Data = calculateSMA(priceData, 50);
+    const sma200Data = calculateSMA(priceData, 200);
+    const recData = calculateRecommendation(priceData, rsiData, macdData, sma50Data, sma200Data);
+    const note = await getResearchNote(ticker, priceData, rsiData, macdData, sma50Data, sma200Data, recData, openRouterKey);
+    renderResults(ticker, priceData, rsiData, macdData, sma50Data, sma200Data, recData, note);
   } catch (err) {
     results.innerHTML = `<p class="error">Something went wrong: ${err.message}</p>`;
   }
@@ -210,9 +212,51 @@ function calculateMACD(priceData, fastPeriod = 12, slowPeriod = 26, signalPeriod
 }
 
 /**
+ * Simple Moving Average (SMA)
+ */
+function calculateSMA(priceData, period) {
+  const prices = priceData.map((d) => d.close);
+  const sma = new Array(prices.length).fill(null);
+
+  if (prices.length < period) {
+    return { values: sma, latest: null, period, signal: 'N/A' };
+  }
+
+  let sum = 0;
+  for (let i = 0; i < period; i++) {
+    sum += prices[i];
+  }
+  sma[period - 1] = sum / period;
+
+  for (let i = period; i < prices.length; i++) {
+    sum += prices[i] - prices[i - period];
+    sma[i] = sum / period;
+  }
+
+  const latestVal = sma[sma.length - 1];
+  const latestPrice = prices[prices.length - 1];
+  let signal = 'Neutral';
+
+  if (latestVal !== null) {
+    if (latestPrice > latestVal) {
+      signal = 'Bullish';
+    } else if (latestPrice < latestVal) {
+      signal = 'Bearish';
+    }
+  }
+
+  return {
+    values: sma,
+    latest: latestVal,
+    period,
+    signal
+  };
+}
+
+/**
  * Calculates a technical recommendation (BUY, SELL, or HOLD) based on RSI, MACD, and SMA trend metrics.
  */
-function calculateRecommendation(priceData, rsiData, macdData) {
+function calculateRecommendation(priceData, rsiData, macdData, sma50Data, sma200Data) {
   let score = 0;
   const reasons = [];
 
@@ -263,10 +307,8 @@ function calculateRecommendation(priceData, rsiData, macdData) {
   const closes = priceData.map((d) => d.close);
   const latestClose = closes[closes.length - 1];
 
-  if (closes.length >= 50) {
-    const last50 = closes.slice(closes.length - 50);
-    const sma50 = last50.reduce((sum, val) => sum + val, 0) / 50;
-
+  if (sma50Data && sma50Data.latest !== null) {
+    const sma50 = sma50Data.latest;
     if (latestClose > sma50) {
       score += 1;
       reasons.push(`Price ($${latestClose.toFixed(2)}) above 50-day SMA ($${sma50.toFixed(2)})`);
@@ -275,10 +317,8 @@ function calculateRecommendation(priceData, rsiData, macdData) {
       reasons.push(`Price ($${latestClose.toFixed(2)}) below 50-day SMA ($${sma50.toFixed(2)})`);
     }
 
-    if (closes.length >= 200) {
-      const last200 = closes.slice(closes.length - 200);
-      const sma200 = last200.reduce((sum, val) => sum + val, 0) / 200;
-
+    if (sma200Data && sma200Data.latest !== null) {
+      const sma200 = sma200Data.latest;
       if (sma50 > sma200) {
         score += 1;
         reasons.push(`50-day SMA ($${sma50.toFixed(2)}) > 200-day SMA ($${sma200.toFixed(2)}) - Golden Cross trend`);
@@ -310,7 +350,7 @@ function calculateRecommendation(priceData, rsiData, macdData) {
 }
 
 // OpenRouter call. The price data and technical indicators are summarized and handed to the model.
-async function getResearchNote(ticker, priceData, rsiData, macdData, recData, apiKey) {
+async function getResearchNote(ticker, priceData, rsiData, macdData, sma50Data, sma200Data, recData, apiKey) {
   if (!apiKey) {
     return '⚠️ OpenRouter API key is missing. Please enter your OpenRouter key (sk-or-...) in the form to generate AI research notes.';
   }
@@ -327,11 +367,19 @@ async function getResearchNote(ticker, priceData, rsiData, macdData, recData, ap
     ? `MACD (12, 26, 9): Line ${macdData.latest.macd.toFixed(2)}, Signal ${macdData.latest.signal.toFixed(2)}, Histogram ${macdData.latest.histogram.toFixed(2)} (${macdData.signal})`
     : 'MACD: N/A';
 
+  const sma50Summary = sma50Data.latest !== null
+    ? `SMA 50: $${sma50Data.latest.toFixed(2)} (${sma50Data.signal})`
+    : 'SMA 50: N/A';
+
+  const sma200Summary = sma200Data.latest !== null
+    ? `SMA 200: $${sma200Data.latest.toFixed(2)} (${sma200Data.signal})`
+    : 'SMA 200: N/A';
+
   const summary =
     `${ticker} daily closes from ${first.date} to ${latest.date}: ` +
     `start $${first.close.toFixed(2)}, latest $${latest.close.toFixed(2)}, ` +
     `change ${pctChange.toFixed(1)}% over ${priceData.length} trading days.\n` +
-    `Technical Indicators -> ${rsiSummary} | ${macdSummary}\n` +
+    `Technical Indicators -> ${rsiSummary} | ${macdSummary} | ${sma50Summary} | ${sma200Summary}\n` +
     `Technical Recommendation: ${recData.action} (Composite Score: ${recData.score > 0 ? '+' : ''}${recData.score.toFixed(1)}). Key Signals: ${recData.reasons.join('; ')}.`;
 
   try {
@@ -387,7 +435,7 @@ async function readOpenRouterError(response) {
   return [`(HTTP ${response.status})`, hint, message].filter(Boolean).join(' ');
 }
 
-function renderResults(ticker, priceData, rsiData, macdData, recData, note) {
+function renderResults(ticker, priceData, rsiData, macdData, sma50Data, sma200Data, recData, note) {
   const latest = priceData[priceData.length - 1];
   const first = priceData[0];
   const pctChange = ((latest.close - first.close) / first.close) * 100;
@@ -398,7 +446,10 @@ function renderResults(ticker, priceData, rsiData, macdData, recData, note) {
   const signalVal = macdData.latest.signal !== null ? macdData.latest.signal.toFixed(2) : 'N/A';
   const histVal = macdData.latest.histogram !== null ? macdData.latest.histogram.toFixed(2) : 'N/A';
 
-  const chartSVG = generate1YearChartSVG(ticker, priceData, rsiData, macdData);
+  const sma50Val = sma50Data.latest !== null ? `$${sma50Data.latest.toFixed(2)}` : 'N/A';
+  const sma200Val = sma200Data.latest !== null ? `$${sma200Data.latest.toFixed(2)}` : 'N/A';
+
+  const chartSVG = generate1YearChartSVG(ticker, priceData, rsiData, macdData, sma50Data, sma200Data);
 
   const reasonsList = recData.reasons.map((r) => `<li>${r}</li>`).join('');
 
@@ -437,6 +488,8 @@ function renderResults(ticker, priceData, rsiData, macdData, recData, note) {
         <h3>1-Year Price & Technical Analysis Chart</h3>
         <div class="chart-legend">
           <span class="legend-item"><span class="legend-color price-line"></span>Price ($)</span>
+          <span class="legend-item"><span class="legend-color sma50-line"></span>SMA 50</span>
+          <span class="legend-item"><span class="legend-color sma200-line"></span>SMA 200</span>
           <span class="legend-item"><span class="legend-color rsi-line"></span>RSI (14)</span>
           <span class="legend-item"><span class="legend-color macd-line"></span>MACD</span>
           <span class="legend-item"><span class="legend-color signal-line"></span>Signal</span>
@@ -470,6 +523,28 @@ function renderResults(ticker, priceData, rsiData, macdData, recData, note) {
           <span>Hist: <strong>${histVal}</strong></span>
         </div>
       </div>
+
+      <div class="indicator-card">
+        <div class="indicator-title">
+          <span>SMA 50 (50-Day)</span>
+          <span class="badge ${sma50Data.signal.toLowerCase()}">${sma50Data.signal}</span>
+        </div>
+        <div class="indicator-value">${sma50Val}</div>
+        <div class="indicator-desc">
+          ${sma50Data.latest !== null && latest.close >= sma50Data.latest ? 'Price above 50-day average' : 'Price below 50-day average'}
+        </div>
+      </div>
+
+      <div class="indicator-card">
+        <div class="indicator-title">
+          <span>SMA 200 (200-Day)</span>
+          <span class="badge ${sma200Data.signal.toLowerCase()}">${sma200Data.signal}</span>
+        </div>
+        <div class="indicator-value">${sma200Val}</div>
+        <div class="indicator-desc">
+          ${sma50Data.latest !== null && sma200Data.latest !== null && sma50Data.latest > sma200Data.latest ? 'Golden Cross Trend (SMA 50 > 200)' : 'Death Cross Trend (SMA 50 < 200)'}
+        </div>
+      </div>
     </div>
 
     <div class="note-section">
@@ -479,7 +554,7 @@ function renderResults(ticker, priceData, rsiData, macdData, recData, note) {
   `;
 }
 
-function generate1YearChartSVG(ticker, priceData, rsiData, macdData) {
+function generate1YearChartSVG(ticker, priceData, rsiData, macdData, sma50Data, sma200Data) {
   const w = 760;
   const h = 420;
   const paddingLeft = 55;
@@ -516,6 +591,28 @@ function generate1YearChartSVG(ticker, priceData, rsiData, macdData) {
   const pricePoints = closes.map((c, i) => `${getX(i).toFixed(1)},${getPriceY(c).toFixed(1)}`);
   const pricePathD = `M ${pricePoints.join(' L ')}`;
   const areaPathD = `M ${getX(0).toFixed(1)},${priceTop + priceHeight} L ${pricePoints.join(' L ')} L ${getX(N - 1).toFixed(1)},${priceTop + priceHeight} Z`;
+
+  // Generate SMA 50 Path
+  const sma50Points = [];
+  if (sma50Data && sma50Data.values) {
+    sma50Data.values.forEach((v, i) => {
+      if (v !== null) {
+        sma50Points.push(`${getX(i).toFixed(1)},${getPriceY(v).toFixed(1)}`);
+      }
+    });
+  }
+  const sma50PathD = sma50Points.length > 0 ? `M ${sma50Points.join(' L ')}` : '';
+
+  // Generate SMA 200 Path
+  const sma200Points = [];
+  if (sma200Data && sma200Data.values) {
+    sma200Data.values.forEach((v, i) => {
+      if (v !== null) {
+        sma200Points.push(`${getX(i).toFixed(1)},${getPriceY(v).toFixed(1)}`);
+      }
+    });
+  }
+  const sma200PathD = sma200Points.length > 0 ? `M ${sma200Points.join(' L ')}` : '';
 
   const isPositive = closes[N - 1] >= closes[0];
   const mainColor = isPositive ? '#16a34a' : '#dc2626';
@@ -609,11 +706,13 @@ function generate1YearChartSVG(ticker, priceData, rsiData, macdData) {
 
       <!-- PRICE CHART SECTION -->
       <g class="price-chart">
-        <text x="${paddingLeft}" y="${priceTop - 8}" font-size="11" font-weight="700" fill="#3b0764" font-family="Montserrat">PRICE ACTION (1 YEAR)</text>
+        <text x="${paddingLeft}" y="${priceTop - 8}" font-size="11" font-weight="700" fill="#3b0764" font-family="Montserrat">PRICE ACTION & MOVING AVERAGES (1 YEAR)</text>
         ${priceGridHTML}
         ${dateTicksHTML}
         <path d="${areaPathD}" fill="url(#${gradId})" />
         <path d="${pricePathD}" fill="none" stroke="${mainColor}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+        ${sma200PathD ? `<path d="${sma200PathD}" fill="none" stroke="#8b5cf6" stroke-width="1.8" stroke-dasharray="3,2" />` : ''}
+        ${sma50PathD ? `<path d="${sma50PathD}" fill="none" stroke="#f59e0b" stroke-width="1.8" />` : ''}
       </g>
 
       <!-- RSI CHART SECTION -->
