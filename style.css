@@ -174,6 +174,94 @@ button:hover {
   color: var(--muted);
 }
 
+/* Recommendation Card */
+.recommendation-card {
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  margin-bottom: 1.25rem;
+  border: 1px solid transparent;
+}
+
+.recommendation-card.rec-buy {
+  background: #f0fdf4;
+  border-color: #86efac;
+  box-shadow: 0 2px 10px rgba(22, 163, 74, 0.12);
+}
+
+.recommendation-card.rec-sell {
+  background: #fef2f2;
+  border-color: #fca5a5;
+  box-shadow: 0 2px 10px rgba(220, 38, 38, 0.12);
+}
+
+.recommendation-card.rec-hold {
+  background: #fffbeb;
+  border-color: #fde68a;
+  box-shadow: 0 2px 10px rgba(217, 119, 6, 0.12);
+}
+
+.rec-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.6rem;
+}
+
+.rec-title-group {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.rec-subtitle {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #3b0764;
+}
+
+.rec-badge {
+  font-size: 0.95rem;
+  font-weight: 800;
+  padding: 0.2rem 0.75rem;
+  border-radius: 6px;
+  letter-spacing: 0.05em;
+}
+
+.rec-buy .rec-badge {
+  background: #16a34a;
+  color: #ffffff;
+}
+
+.rec-sell .rec-badge {
+  background: #dc2626;
+  color: #ffffff;
+}
+
+.rec-hold .rec-badge {
+  background: #d97706;
+  color: #ffffff;
+}
+
+.rec-score {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #2e1065;
+}
+
+.rec-reasons {
+  margin: 0;
+  padding-left: 1.2rem;
+  font-size: 0.825rem;
+  color: #2e1065;
+  line-height: 1.5;
+}
+
+.rec-reasons li {
+  margin-bottom: 0.2rem;
+}
+
 .chart-section {
   background: rgba(255, 255, 255, 0.88);
   border: 1px solid rgba(107, 33, 168, 0.2);

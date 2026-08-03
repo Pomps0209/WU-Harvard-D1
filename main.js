@@ -21,8 +21,9 @@ form.addEventListener('submit', async (event) => {
     const priceData = await fetchPriceData(ticker, twelveDataKey);
     const rsiData = calculateRSI(priceData);
     const macdData = calculateMACD(priceData);
-    const note = await getResearchNote(ticker, priceData, rsiData, macdData, openRouterKey);
-    renderResults(ticker, priceData, rsiData, macdData, note);
+    const recData = calculateRecommendation(priceData, rsiData, macdData);
+    const note = await getResearchNote(ticker, priceData, rsiData, macdData, recData, openRouterKey);
+    renderResults(ticker, priceData, rsiData, macdData, recData, note);
   } catch (err) {
     results.innerHTML = `<p class="error">Something went wrong: ${err.message}</p>`;
   }
@@ -208,8 +209,112 @@ function calculateMACD(priceData, fastPeriod = 12, slowPeriod = 26, signalPeriod
   };
 }
 
+/**
+ * Calculates a technical recommendation (BUY, SELL, or HOLD) based on RSI, MACD, and SMA trend metrics.
+ */
+function calculateRecommendation(priceData, rsiData, macdData) {
+  let score = 0;
+  const reasons = [];
+
+  // 1. RSI Scoring
+  if (rsiData.latest !== null) {
+    const rsi = rsiData.latest;
+    if (rsi <= 30) {
+      score += 2;
+      reasons.push(`RSI is oversold (${rsi.toFixed(1)} <= 30)`);
+    } else if (rsi < 45) {
+      score += 1;
+      reasons.push(`RSI is in lower neutral zone (${rsi.toFixed(1)})`);
+    } else if (rsi > 70) {
+      score -= 2;
+      reasons.push(`RSI is overbought (${rsi.toFixed(1)} >= 70)`);
+    } else if (rsi > 55) {
+      score -= 1;
+      reasons.push(`RSI is in upper neutral zone (${rsi.toFixed(1)})`);
+    } else {
+      reasons.push(`RSI is neutral (${rsi.toFixed(1)})`);
+    }
+  }
+
+  // 2. MACD Scoring
+  if (macdData.latest.histogram !== null) {
+    const hist = macdData.latest.histogram;
+    const macdLine = macdData.latest.macd;
+    const signalLine = macdData.latest.signal;
+
+    if (hist > 0) {
+      score += 1.5;
+      reasons.push(`MACD histogram is positive (+${hist.toFixed(2)})`);
+    } else if (hist < 0) {
+      score -= 1.5;
+      reasons.push(`MACD histogram is negative (${hist.toFixed(2)})`);
+    }
+
+    if (macdLine > signalLine) {
+      score += 0.5;
+      reasons.push('MACD line above signal line');
+    } else if (macdLine < signalLine) {
+      score -= 0.5;
+      reasons.push('MACD line below signal line');
+    }
+  }
+
+  // 3. Moving Average Trend (50-day & 200-day Simple Moving Average)
+  const closes = priceData.map((d) => d.close);
+  const latestClose = closes[closes.length - 1];
+
+  if (closes.length >= 50) {
+    const last50 = closes.slice(closes.length - 50);
+    const sma50 = last50.reduce((sum, val) => sum + val, 0) / 50;
+
+    if (latestClose > sma50) {
+      score += 1;
+      reasons.push(`Price ($${latestClose.toFixed(2)}) above 50-day SMA ($${sma50.toFixed(2)})`);
+    } else {
+      score -= 1;
+      reasons.push(`Price ($${latestClose.toFixed(2)}) below 50-day SMA ($${sma50.toFixed(2)})`);
+    }
+
+    if (closes.length >= 200) {
+      const last200 = closes.slice(closes.length - 200);
+      const sma200 = last200.reduce((sum, val) => sum + val, 0) / 200;
+
+      if (sma50 > sma200) {
+        score += 1;
+        reasons.push(`50-day SMA ($${sma50.toFixed(2)}) > 200-day SMA ($${sma200.toFixed(2)}) - Golden Cross trend`);
+      } else {
+        score -= 1;
+        reasons.push(`50-day SMA ($${sma50.toFixed(2)}) < 200-day SMA ($${sma200.toFixed(2)}) - Death Cross trend`);
+      }
+    }
+  }
+
+  // Determine Recommendation Action
+  let action = 'HOLD';
+  let badgeClass = 'rec-hold';
+
+  if (score >= 2.0) {
+    action = 'BUY';
+    badgeClass = 'rec-buy';
+  } else if (score <= -2.0) {
+    action = 'SELL';
+    badgeClass = 'rec-sell';
+  }
+
+  return {
+    action,
+    score,
+    badgeClass,
+    reasons
+  };
+}
+
 // OpenRouter call. The price data and technical indicators are summarized and handed to the model.
-async function getResearchNote(ticker, priceData, rsiData, macdData, apiKey) {
+async function getResearchNote(ticker, priceData, rsiData, macdData, recData, apiKey) {
+  if (!apiKey) {
+    return '⚠️ OpenRouter API key is missing. Please enter your OpenRouter key (sk-or-...) in the form to generate AI research notes.';
+  }
+
   const first = priceData[0];
   const latest = priceData[priceData.length - 1];
   const pctChange = ((latest.close - first.close) / first.close) * 100;
@@ -226,28 +331,36 @@ async function getResearchNote(ticker, priceData, rsiData, macdData, apiKey) {
     `${ticker} daily closes from ${first.date} to ${latest.date}: ` +
     `start $${first.close.toFixed(2)}, latest $${latest.close.toFixed(2)}, ` +
     `change ${pctChange.toFixed(1)}% over ${priceData.length} trading days.\n` +
-    `Technical Indicators -> ${rsiSummary} | ${macdSummary}`;
+    `Technical Indicators -> ${rsiSummary} | ${macdSummary}\n` +
+    `Technical Recommendation: ${recData.action} (Composite Score: ${recData.score > 0 ? '+' : ''}${recData.score.toFixed(1)}). Key Signals: ${recData.reasons.join('; ')}.`;
 
-  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      model: 'anthropic/claude-sonnet-5',
-      max_tokens: 2000,
-      reasoning: { enabled: false },
-      messages: [
-        { role: 'system', content: 'You are a financial research assistant. Be concise and factual.' },
-        { role: 'user', content: `${summary}\n\nWrite a concise one paragraph research note for ${ticker} incorporating recent price action, RSI, and MACD momentum signals.` }
-      ]
-    })
-  });
+  try {
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'google/gemini-2.5-flash',
+        max_tokens: 2000,
+        messages: [
+          { role: 'system', content: 'You are a financial research assistant. Be concise and factual.' },
+          { role: 'user', content: `${summary}\n\nWrite a concise one paragraph research note for ${ticker} explaining the ${recData.action} technical recommendation based on the price action, RSI, MACD, and SMA moving averages.` }
+        ]
+      })
+    });
 
-  if (!response.ok) throw new Error(`OpenRouter call failed. ${await readOpenRouterError(response)}`);
-  const data = await response.json();
-  return data.choices?.[0]?.message?.content ?? 'No response.';
+    if (!response.ok) {
+      const errDetails = await readOpenRouterError(response);
+      return `⚠️ OpenRouter API Key Error: ${errDetails}. Please double-check your key (starts with sk-or-...) at openrouter.ai.`;
+    }
+
+    const data = await response.json();
+    return data.choices?.[0]?.message?.content ?? 'No response received from model.';
+  } catch (err) {
+    return `⚠️ Could not reach OpenRouter API: ${err.message}. Technical calculations and charts are displayed above.`;
+  }
 }
 
 // Pulls the useful part out of an OpenRouter error response: the HTTP status,
@@ -274,7 +387,7 @@ async function readOpenRouterError(response) {
   return [`(HTTP ${response.status})`, hint, message].filter(Boolean).join(' ');
 }
 
-function renderResults(ticker, priceData, rsiData, macdData, note) {
+function renderResults(ticker, priceData, rsiData, macdData, recData, note) {
   const latest = priceData[priceData.length - 1];
   const first = priceData[0];
   const pctChange = ((latest.close - first.close) / first.close) * 100;
@@ -287,6 +400,8 @@ function renderResults(ticker, priceData, rsiData, macdData, note) {
 
   const chartSVG = generate1YearChartSVG(ticker, priceData, rsiData, macdData);
 
+  const reasonsList = recData.reasons.map((r) => `<li>${r}</li>`).join('');
+
   results.innerHTML = `
     <div class="results-header">
       <h2>${ticker}</h2>
@@ -297,6 +412,24 @@ function renderResults(ticker, priceData, rsiData, macdData, note) {
         </span>
       </div>
       <p class="date-range">${first.date} to ${latest.date} (${priceData.length} trading days)</p>
+    </div>
+
+    <!-- TECHNICAL RECOMMENDATION CARD -->
+    <div class="recommendation-card ${recData.badgeClass}">
+      <div class="rec-header">
+        <div class="rec-title-group">
+          <span class="rec-subtitle">Technical Recommendation</span>
+          <span class="rec-badge">${recData.action}</span>
+        </div>
+        <div class="rec-score">
+          Score: <strong>${recData.score > 0 ? '+' : ''}${recData.score.toFixed(1)}</strong>
+        </div>
+      </div>
+      <div class="rec-body">
+        <ul class="rec-reasons">
+          ${reasonsList}
+        </ul>
+      </div>
     </div>
 
     <div class="chart-section">
