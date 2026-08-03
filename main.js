@@ -19,8 +19,10 @@ form.addEventListener('submit', async (event) => {
 
   try {
     const priceData = await fetchPriceData(ticker, twelveDataKey);
-    const note = await getResearchNote(ticker, priceData, openRouterKey);
-    renderResults(ticker, priceData, note);
+    const rsiData = calculateRSI(priceData);
+    const macdData = calculateMACD(priceData);
+    const note = await getResearchNote(ticker, priceData, rsiData, macdData, openRouterKey);
+    renderResults(ticker, priceData, rsiData, macdData, note);
   } catch (err) {
     results.innerHTML = `<p class="error">Something went wrong: ${err.message}</p>`;
   }
@@ -70,19 +72,162 @@ async function fetchPriceData(ticker, apiKey) {
     .sort((a, b) => (a.date < b.date ? -1 : 1));
 }
 
-// OpenRouter call. The price data above is summarized and handed to the model
-// so the note reflects the actual numbers you fetched. Replace the model,
-// prompt, and system prompt with whatever you designed in the Prompt
-// Engineering session.
-async function getResearchNote(ticker, priceData, apiKey) {
+// --- Technical Indicators: MACD & RSI ---
+
+function calculateEMA(prices, period) {
+  const k = 2 / (period + 1);
+  const ema = new Array(prices.length).fill(null);
+  if (prices.length < period) return ema;
+
+  let sum = 0;
+  for (let i = 0; i < period; i++) {
+    sum += prices[i];
+  }
+  let prevEma = sum / period;
+  ema[period - 1] = prevEma;
+
+  for (let i = period; i < prices.length; i++) {
+    const currentEma = prices[i] * k + prevEma * (1 - k);
+    ema[i] = currentEma;
+    prevEma = currentEma;
+  }
+  return ema;
+}
+
+/**
+ * Relative Strength Index (RSI - 14 Period Wilder's Smoothing)
+ */
+function calculateRSI(priceData, period = 14) {
+  const prices = priceData.map((d) => d.close);
+  const rsi = new Array(prices.length).fill(null);
+
+  if (prices.length <= period) {
+    return { values: rsi, latest: null, signal: 'N/A' };
+  }
+
+  let gains = 0;
+  let losses = 0;
+
+  for (let i = 1; i <= period; i++) {
+    const change = prices[i] - prices[i - 1];
+    if (change >= 0) gains += change;
+    else losses += Math.abs(change);
+  }
+
+  let avgGain = gains / period;
+  let avgLoss = losses / period;
+
+  let rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
+  rsi[period] = avgLoss === 0 ? 100 : 100 - 100 / (1 + rs);
+
+  for (let i = period + 1; i < prices.length; i++) {
+    const change = prices[i] - prices[i - 1];
+    const gain = change >= 0 ? change : 0;
+    const loss = change < 0 ? Math.abs(change) : 0;
+
+    avgGain = (avgGain * (period - 1) + gain) / period;
+    avgLoss = (avgLoss * (period - 1) + loss) / period;
+
+    if (avgLoss === 0) {
+      rsi[i] = 100;
+    } else {
+      rs = avgGain / avgLoss;
+      rsi[i] = 100 - 100 / (1 + rs);
+    }
+  }
+
+  const latestVal = rsi[rsi.length - 1];
+  let signal = 'Neutral';
+  if (latestVal !== null) {
+    if (latestVal >= 70) signal = 'Overbought';
+    else if (latestVal <= 30) signal = 'Oversold';
+  }
+
+  return {
+    values: rsi,
+    latest: latestVal,
+    signal
+  };
+}
+
+/**
+ * Moving Average Convergence Divergence (MACD 12, 26, 9)
+ */
+function calculateMACD(priceData, fastPeriod = 12, slowPeriod = 26, signalPeriod = 9) {
+  const prices = priceData.map((d) => d.close);
+  const emaFast = calculateEMA(prices, fastPeriod);
+  const emaSlow = calculateEMA(prices, slowPeriod);
+
+  const macdLine = new Array(prices.length).fill(null);
+  for (let i = 0; i < prices.length; i++) {
+    if (emaFast[i] !== null && emaSlow[i] !== null) {
+      macdLine[i] = emaFast[i] - emaSlow[i];
+    }
+  }
+
+  const validIndices = [];
+  const validMacd = [];
+  for (let i = 0; i < macdLine.length; i++) {
+    if (macdLine[i] !== null) {
+      validIndices.push(i);
+      validMacd.push(macdLine[i]);
+    }
+  }
+
+  const signalEma = calculateEMA(validMacd, signalPeriod);
+  const signalLine = new Array(prices.length).fill(null);
+  const histogram = new Array(prices.length).fill(null);
+
+  for (let k = 0; k < validIndices.length; k++) {
+    const origIdx = validIndices[k];
+    if (signalEma[k] !== null) {
+      signalLine[origIdx] = signalEma[k];
+      histogram[origIdx] = macdLine[origIdx] - signalEma[k];
+    }
+  }
+
+  const latestMacd = macdLine[macdLine.length - 1];
+  const latestSignal = signalLine[signalLine.length - 1];
+  const latestHist = histogram[histogram.length - 1];
+
+  let signal = 'Neutral';
+  if (latestHist !== null) {
+    if (latestHist > 0) signal = 'Bullish';
+    else if (latestHist < 0) signal = 'Bearish';
+  }
+
+  return {
+    macdLine,
+    signalLine,
+    histogram,
+    latest: {
+      macd: latestMacd,
+      signal: latestSignal,
+      histogram: latestHist
+    },
+    signal
+  };
+}
+
+// OpenRouter call. The price data and technical indicators are summarized and handed to the model.
+async function getResearchNote(ticker, priceData, rsiData, macdData, apiKey) {
   const first = priceData[0];
   const latest = priceData[priceData.length - 1];
   const pctChange = ((latest.close - first.close) / first.close) * 100;
 
+  const rsiSummary = rsiData.latest !== null
+    ? `RSI (14): ${rsiData.latest.toFixed(2)} (${rsiData.signal})`
+    : 'RSI: N/A';
+
+  const macdSummary = macdData.latest.macd !== null
+    ? `MACD (12, 26, 9): Line ${macdData.latest.macd.toFixed(2)}, Signal ${macdData.latest.signal.toFixed(2)}, Histogram ${macdData.latest.histogram.toFixed(2)} (${macdData.signal})`
+    : 'MACD: N/A';
+
   const summary =
     `${ticker} daily closes from ${first.date} to ${latest.date}: ` +
     `start $${first.close.toFixed(2)}, latest $${latest.close.toFixed(2)}, ` +
-    `change ${pctChange.toFixed(1)}% over ${priceData.length} trading days.`;
+    `change ${pctChange.toFixed(1)}% over ${priceData.length} trading days.\n` +
+    `Technical Indicators -> ${rsiSummary} | ${macdSummary}`;
 
   const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
@@ -92,21 +237,15 @@ async function getResearchNote(ticker, priceData, apiKey) {
     },
     body: JSON.stringify({
       model: 'anthropic/claude-sonnet-5',
-      // Sonnet 5 is a reasoning model. If max_tokens is too small to also cover
-      // its reasoning tokens, the request is rejected with a 400 "Provider
-      // returned error". This note is short, so turn reasoning off and leave
-      // comfortable headroom for the reply.
       max_tokens: 2000,
       reasoning: { enabled: false },
       messages: [
         { role: 'system', content: 'You are a financial research assistant. Be concise and factual.' },
-        { role: 'user', content: `${summary}\n\nWrite a one paragraph research note for ${ticker} based on this recent price action.` }
+        { role: 'user', content: `${summary}\n\nWrite a concise one paragraph research note for ${ticker} incorporating recent price action, RSI, and MACD momentum signals.` }
       ]
     })
   });
-  // Surface what OpenRouter actually said, so a failed call tells you the real
-  // reason (bad key, no credits, rate limit, provider error) instead of a
-  // generic message you cannot act on.
+
   if (!response.ok) throw new Error(`OpenRouter call failed. ${await readOpenRouterError(response)}`);
   const data = await response.json();
   return data.choices?.[0]?.message?.content ?? 'No response.';
@@ -121,8 +260,6 @@ async function readOpenRouterError(response) {
     const body = await response.json();
     const err = body.error ?? body;
     message = err.message || '';
-    // On a "Provider returned error", the provider's own message is under
-    // metadata rather than the top-level message field.
     const provider = err.metadata?.provider_name;
     const raw = err.metadata?.raw;
     if (provider) message += ` [provider: ${provider}]`;
@@ -138,13 +275,57 @@ async function readOpenRouterError(response) {
   return [`(HTTP ${response.status})`, hint, message].filter(Boolean).join(' ');
 }
 
-function renderResults(ticker, priceData, note) {
-  // priceData is sorted oldest to newest, so the last bar is the most recent.
+function renderResults(ticker, priceData, rsiData, macdData, note) {
   const latest = priceData[priceData.length - 1];
+  const first = priceData[0];
+  const pctChange = ((latest.close - first.close) / first.close) * 100;
+  const isPositive = pctChange >= 0;
+
+  const rsiVal = rsiData.latest !== null ? rsiData.latest.toFixed(2) : 'N/A';
+  const macdVal = macdData.latest.macd !== null ? macdData.latest.macd.toFixed(2) : 'N/A';
+  const signalVal = macdData.latest.signal !== null ? macdData.latest.signal.toFixed(2) : 'N/A';
+  const histVal = macdData.latest.histogram !== null ? macdData.latest.histogram.toFixed(2) : 'N/A';
 
   results.innerHTML = `
-    <h2>${ticker}</h2>
-    <p class="price">Latest close (${latest.date}): $${latest.close.toFixed(2)}</p>
-    <p class="note">${note}</p>
+    <div class="results-header">
+      <h2>${ticker}</h2>
+      <div class="price-block">
+        <span class="price-value">$${latest.close.toFixed(2)}</span>
+        <span class="price-change ${isPositive ? 'positive' : 'negative'}">
+          ${isPositive ? '+' : ''}${pctChange.toFixed(2)}%
+        </span>
+      </div>
+      <p class="date-range">${first.date} to ${latest.date}</p>
+    </div>
+
+    <div class="indicators-grid">
+      <div class="indicator-card">
+        <div class="indicator-title">
+          <span>RSI (14)</span>
+          <span class="badge ${rsiData.signal.toLowerCase()}">${rsiData.signal}</span>
+        </div>
+        <div class="indicator-value">${rsiVal}</div>
+        <div class="indicator-desc">
+          ${rsiData.signal === 'Overbought' ? 'Overbought (>70)' : rsiData.signal === 'Oversold' ? 'Oversold (<30)' : 'Neutral zone (30-70)'}
+        </div>
+      </div>
+
+      <div class="indicator-card">
+        <div class="indicator-title">
+          <span>MACD (12, 26, 9)</span>
+          <span class="badge ${macdData.signal.toLowerCase()}">${macdData.signal}</span>
+        </div>
+        <div class="indicator-value">${macdVal}</div>
+        <div class="indicator-details">
+          <span>Signal: <strong>${signalVal}</strong></span>
+          <span>Hist: <strong>${histVal}</strong></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="note-section">
+      <h3>AI Analysis & Research Note</h3>
+      <p class="note-text">${note}</p>
+    </div>
   `;
 }
